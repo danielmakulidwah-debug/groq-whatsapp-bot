@@ -1,7 +1,7 @@
 {
   "name": "groq-whatsapp-bot",
   "version": "1.0.0",
-  "description": "AI-powered WhatsApp auto-reply bot using Groq API",
+  "description": "AI-powered WhatsApp auto-reply bot using Gemini API",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

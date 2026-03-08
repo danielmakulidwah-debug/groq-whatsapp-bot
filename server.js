@@ -53,7 +53,7 @@ AGENT ONBOARDING RULE (very important):
 - Only send this link when BOTH name AND location are given
 
 CARS TO SELL RULE:
-- If an agent asks where to get cars to sell or where to find available stock, send them this link: https://chat.whatsapp.com/EnlSrBu2kFZ0GuNEo7yIuC?mode=gi_t
+- If an agent asks where to get cars to sell or where to find available stock, send this link: https://chat.whatsapp.com/EnlSrBu2kFZ0GuNEo7yIuC?mode=gi_t
 - Tell them all available agency cars are listed there
 
 HOW DANIEL RESPONDS:
@@ -70,8 +70,10 @@ HOW DANIEL RESPONDS:
 - Only switch to Chichewa if the customer writes in Chichewa first
 - Never mix English and Chichewa in the same reply`;
 
-async function askGroq(messages) {
+async function askGroq(message, sender) {
   if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY not set");
+
+  const userMessage = sender ? `[Message from ${sender}]: ${message}` : message;
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -83,7 +85,7 @@ async function askGroq(messages) {
       model: "llama-3.1-8b-instant",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        ...messages
+        { role: "user", content: userMessage }
       ],
       max_tokens: 300,
       temperature: 0.7
@@ -96,35 +98,6 @@ async function askGroq(messages) {
   return data.choices[0].message.content.trim();
 }
 
-// Parse AutoResponder history format (1:: and 2:: markers)
-function parseHistory(raw) {
-  const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
-  const messages = [];
-  let currentMessage = raw;
-
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].startsWith("1::")) {
-      const content = lines[i].replace(/^1::\s*/, "").trim();
-      if (content && !content.startsWith("%")) {
-        messages.push({ role: "user", content });
-      }
-    } else if (lines[i].startsWith("2::")) {
-      const content = lines[i].replace(/^2::\s*/, "").trim();
-      if (content && !content.startsWith("%")) {
-        messages.push({ role: "assistant", content });
-      }
-    }
-  }
-
-  // Last 1:: line is the current message
-  const lastUserLine = lines.filter(l => l.startsWith("1::")).pop();
-  if (lastUserLine) {
-    currentMessage = lastUserLine.replace(/^1::\s*/, "").trim();
-  }
-
-  return { messages, currentMessage };
-}
-
 // Health check
 app.get("/", (req, res) => {
   res.json({
@@ -135,42 +108,36 @@ app.get("/", (req, res) => {
   });
 });
 
-// Webhook
+// Main webhook — AutoResponder sends POST with JSON body
 app.all("/webhook", async (req, res) => {
   try {
-    const raw =
-      req.body?.message || req.body?.msg || req.body?.text ||
-      req.query?.message || req.query?.msg || req.query?.text;
+    // AutoResponder POST format: { query: { message, sender, isGroup } }
+    const message =
+      req.body?.query?.message ||   // AutoResponder POST format
+      req.body?.message ||           // simple POST
+      req.query?.message ||          // GET query param
+      req.query?.msg;
 
-    if (!raw) return res.status(400).send("No message received");
+    const sender = req.body?.query?.sender || "Customer";
 
-    let messages = [];
-    let currentMessage = raw;
-
-    // Parse conversation history if AutoResponder format detected
-    if (raw.includes("1::")) {
-      const parsed = parseHistory(raw);
-      messages = parsed.messages;
-      currentMessage = parsed.currentMessage;
-      // Remove the last user message from history (it's the current one)
-      if (messages.length && messages[messages.length - 1].role === "user") {
-        messages.pop();
-      }
+    if (!message) {
+      return res.status(400).json({
+        replies: [{ message: "Error: No message received" }]
+      });
     }
 
-    // Add current message
-    messages.push({ role: "user", content: currentMessage });
-
-    console.log(`[IN] ${currentMessage}`);
-    const reply = await askGroq(messages);
+    console.log(`[IN] ${sender}: ${message}`);
+    const reply = await askGroq(message, sender);
     console.log(`[OUT] ${reply}`);
 
-    res.setHeader("Content-Type", "text/plain");
-    res.send(reply);
+    // AutoResponder expects JSON: { replies: [{ message: "..." }] }
+    res.json({ replies: [{ message: reply }] });
 
   } catch (err) {
     console.error("[ERROR]", err.message);
-    res.status(500).send(`Error: ${err.message}`);
+    res.status(500).json({
+      replies: [{ message: `Sorry, Daniel is unavailable right now. Please call +265 980 717 420` }]
+    });
   }
 });
 

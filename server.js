@@ -288,6 +288,12 @@ app.get("/webhook", async (req, res) => {
   }
 });
 
+// Self-ping to prevent Render sleep
+setInterval(() => {
+  fetch(`https://groq-whatsapp-bot-qwg1.onrender.com/`)
+    .catch(() => {});
+}, 4 * 60 * 1000);
+
 app.listen(PORT, () => {
   console.log(`✅ Daniel (DM Car Agency) running on port ${PORT}`);
   console.log(`   GROQ_API_KEY: ${GROQ_API_KEY ? "SET ✓" : "MISSING ✗"}`);

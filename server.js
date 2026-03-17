@@ -19,7 +19,7 @@ ABOUT DM CAR AGENCY:
 - Located in Blantyre, Malawi
 - In business since 2024 with 5 years experience
 - 500+ cars listed, 1,200+ happy customers, 98% satisfaction rate
-- Website: https://dmcaragency.netlify.app
+- Website: https://dmcaragency.vercel.app
 - WhatsApp/Phone: +265 980 717 420
 - Facebook: https://www.facebook.com/dmcaragency
 
@@ -47,22 +47,22 @@ WHY CUSTOMERS CHOOSE US:
 - Trusted by 1,200+ happy customers across Malawi
 
 AGENT ONBOARDING RULE (very important):
-- If someone sends their NAME and LOCATION in one message (examples: "John, Lilongwe" or "My name is Grace from Mzuzu" or "Peter - Zomba"), they are joining as a new agent
+- If someone sends their NAME and LOCATION in one message (e.g. "John, Lilongwe" or "My name is Grace from Mzuzu" or "Peter - Zomba"), they are joining as a new agent
 - Welcome them warmly by name, mention their location, then give them the agents forum link
 - Agents forum: https://chat.whatsapp.com/IgvJ1tApnqJGAtDABQHfyO?mode=gi_t
 - Only send this link when BOTH name AND location are given
 
 CARS TO SELL RULE:
-- If an agent asks where to get cars to sell or where to find available stock, send this link: https://chat.whatsapp.com/EnlSrBu2kFZ0GuNEo7yIuC?mode=gi_t
+- If an agent asks where to get cars to sell or find available stock, send: https://chat.whatsapp.com/EnlSrBu2kFZ0GuNEo7yIuC?mode=gi_t
 - Tell them all available agency cars are listed there
 
 HOW DANIEL RESPONDS:
 - Always introduce yourself as Daniel from DM Car Agency on the first message
 - Be warm, confident and professional like a real helpful team member
 - Keep replies concise, 2-4 sentences max unless more detail is needed
-- For buying: https://dmcaragency.netlify.app/listings
-- For selling: https://dmcaragency.netlify.app/sell-car
-- For joining team: https://dmcaragency.netlify.app/join-team
+- For buying: https://dmcaragency.vercel.app/listings
+- For selling: https://dmcaragency.vercel.app/sell-car
+- For joining team: https://dmcaragency.vercel.app/join-team
 - For calls: +265 980 717 420
 - Never make up car details — invite them to browse or call instead
 - Always end with a clear next step or call to action
@@ -73,7 +73,9 @@ HOW DANIEL RESPONDS:
 async function askGroq(message, sender) {
   if (!GROQ_API_KEY) throw new Error("GROQ_API_KEY not set");
 
-  const userMessage = sender ? `[Message from ${sender}]: ${message}` : message;
+  const userContent = sender
+    ? `[Message from ${sender}]: ${message}`
+    : message;
 
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
@@ -85,7 +87,7 @@ async function askGroq(message, sender) {
       model: "llama-3.1-8b-instant",
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: userMessage }
+        { role: "user",   content: userContent }
       ],
       max_tokens: 300,
       temperature: 0.7
@@ -98,50 +100,78 @@ async function askGroq(message, sender) {
   return data.choices[0].message.content.trim();
 }
 
-// Health check
+// ── Health check ──────────────────────────────────────────────────────────────
 app.get("/", (req, res) => {
   res.json({
     status: "running",
     bot: "Daniel — DM Car Agency",
     developer: "DMG Tech Team",
-    groq_key: GROQ_API_KEY ? `Loaded (${GROQ_API_KEY.substring(0, 8)}...)` : "MISSING"
+    groq_key: GROQ_API_KEY
+      ? `Loaded (${GROQ_API_KEY.substring(0, 8)}...)`
+      : "MISSING — add GROQ_API_KEY in Render environment"
   });
 });
 
-// Main webhook — AutoResponder sends POST with JSON body
-app.all("/webhook", async (req, res) => {
-  try {
-    // AutoResponder POST format: { query: { message, sender, isGroup } }
-    const message =
-      req.body?.query?.message ||   // AutoResponder POST format
-      req.body?.message ||           // simple POST
-      req.query?.message ||          // GET query param
-      req.query?.msg;
+// ── Main webhook ──────────────────────────────────────────────────────────────
+// WhatsAuto sends POST JSON: { app, sender, message, group_name, phone }
+// AutoResponder sends POST JSON: { query: { sender, message, isGroup } }
+// Both supported below
 
-    const sender = req.body?.query?.sender || "Customer";
+app.post("/webhook", async (req, res) => {
+  try {
+    // --- WhatsAuto format ---
+    const waMessage  = req.body?.message;
+    const waSender   = req.body?.sender;
+    const waPhone    = req.body?.phone;
+    const waGroup    = req.body?.group_name;
+
+    // --- AutoResponder format ---
+    const arMessage  = req.body?.query?.message;
+    const arSender   = req.body?.query?.sender;
+
+    // Pick whichever format sent the message
+    const message = waMessage || arMessage;
+    const sender  = waSender  || arSender || waPhone || "Customer";
 
     if (!message) {
-      return res.status(400).json({
-        replies: [{ message: "Error: No message received" }]
-      });
+      return res.status(400).json({ reply: "No message received" });
     }
 
-    console.log(`[IN] ${sender}: ${message}`);
+    console.log(`[IN]  ${sender}: ${message}`);
     const reply = await askGroq(message, sender);
     console.log(`[OUT] ${reply}`);
 
-    // AutoResponder expects JSON: { replies: [{ message: "..." }] }
-    res.json({ replies: [{ message: reply }] });
+    // ── WhatsAuto expects: { reply: "..." } ──────────────────────────────────
+    // ── AutoResponder expects: { replies: [{ message: "..." }] } ────────────
+    // We return BOTH so either app works with this same server
+    res.json({
+      reply: reply,
+      replies: [{ message: reply }]
+    });
 
   } catch (err) {
     console.error("[ERROR]", err.message);
     res.status(500).json({
-      replies: [{ message: `Sorry, Daniel is unavailable right now. Please call +265 980 717 420` }]
+      reply: "Sorry, Daniel is unavailable right now. Please call +265 980 717 420",
+      replies: [{ message: "Sorry, Daniel is unavailable right now. Please call +265 980 717 420" }]
     });
   }
 });
 
+// Also support GET for quick browser testing
+app.get("/webhook", async (req, res) => {
+  try {
+    const message = req.query?.message || req.query?.msg;
+    if (!message) return res.status(400).json({ reply: "No message provided" });
+
+    const reply = await askGroq(message, "Test");
+    res.json({ reply, replies: [{ message: reply }] });
+  } catch (err) {
+    res.status(500).json({ reply: `Error: ${err.message}` });
+  }
+});
+
 app.listen(PORT, () => {
-  console.log(`Daniel (DM Car Agency) running on port ${PORT}`);
-  console.log(`GROQ_API_KEY: ${GROQ_API_KEY ? "SET" : "MISSING"}`);
+  console.log(`✅ Daniel (DM Car Agency) running on port ${PORT}`);
+  console.log(`   GROQ_API_KEY: ${GROQ_API_KEY ? "SET ✓" : "MISSING ✗"}`);
 });
